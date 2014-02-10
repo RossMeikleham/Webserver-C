@@ -25,8 +25,28 @@ char ENTIRE_404_RESPONSE[] = "HTTP/1.1 404 Not Found\r\n"
     "</body>\r\n" 
     "</html>";
 
+char ENTIRE_400_RESPONSE[] = 
+    "HTTP/1.1 400 Bad Request\r\n"
+    "Content-Type: text/html \r\n"
+    "Connection: close \r\n\r\n"
+    "<!DOCTYPE HTML PUBLIC \"-//W3C//DTD HTML 4.01//EN\"\r\n"
+    "\t\"http://www.w3.org/TR/html4/strict.dtd\">"
+    "<html>\r\n" 
+    "<head>\r\n" 
+    "<title> 400 Bad Request </title>\r\n" 
+    "</head>\r\n" 
+    "<body>\r\n" 
+    "<p> Your request was bad. </p>\r\n" 
+    "</body>\r\n" 
+    "</html>";
+
+
 
 char CONTENT_TEXT_HTML[] = "Content-Type: text/html";
+char CONTENT_TEXT_PLAIN[] = "Content-Type: text/plain";
+char CONTENT_IMAGE_JPEG[] = "Content-Type: image/jpeg";
+char CONTENT_IMAGE_GIF[] = "Content-Type: image/gif";
+char CONTENT_UNKNOWN[] = "Content-Type: application/octet-stream"
 char CONNECTION_CLOSE[] = "Connection: close";
 
 char END_OF_LINE[] = "\r\n";
@@ -194,9 +214,9 @@ char * request(char* buf)
                     request->type, request->resource, request->http_version);
                     return getResponse(request);
                      }
-    else printf("failed\n");
+    else printf("failed returning 400 response \n");
     delete_request(request);
-    return NULL;
+    return ENTIRE_400_RESPONSE;
     
     
 }
