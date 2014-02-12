@@ -63,8 +63,9 @@ void* client_thread(void *connection) {
     int rcount;
     char type[2048]; 
     char *ret;
+    long size;
 
-    
+    for(;;) {
 
         printf("confd recieved %d\n", confd);  
         rcount = read(confd, type, 2047);
@@ -84,11 +85,11 @@ void* client_thread(void *connection) {
         printf("Client message %s\n",type);
         
 	
-        ret = request(type);
+        ret = request(type, &size);
          
     printf("Sending message back to client\n");
         printf("ret %s\n",ret);
-        rcount = write(confd, ret, strlen(ret));
+        rcount = write(confd, ret, size);
         printf("sent \n");
         if(rcount == -1) {
             printf("error writing to socket\n");
@@ -101,10 +102,7 @@ void* client_thread(void *connection) {
             return NULL;
         }
 
-    printf("closed connection\n");
-    close(confd);
-
-    
+    }
    
     return NULL;
 }
