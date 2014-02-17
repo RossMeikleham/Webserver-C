@@ -60,7 +60,7 @@ int main(int argc, char *argv[])
 {
     int fd, i;
     char *dns, buffer[BUFLEN];
-    char buffer2[100000];
+    char buffer2[1000];
 	
    if(argc != 2) {
 	printf("Error, usage: client [server]");
@@ -74,8 +74,8 @@ int main(int argc, char *argv[])
 	return 1;
     
     
-    char sendMessage[] = "GET /jd.jpg HTTP/1.1\r\n\r\n";
-
+    char sendMessage[] = "GET /index.html HTTP/1.1\r\n\r\n";
+    printf("SENDING THIS PIECE OF SHIT\n");
     if ((write(fd, sendMessage, strlen(sendMessage)))==-1) {
         printf("Error writing to server\n");
         printf("%d\n", errno);
@@ -85,7 +85,7 @@ int main(int argc, char *argv[])
 
     printf("reading from server:\n");
 
-    int rcount = read(fd, buffer2, 100000);
+    int rcount = read(fd, buffer2, 1000);
      if (rcount == -1) {
         printf("%d\n",errno);
         printf("unable to read from socket\n");
@@ -95,7 +95,7 @@ int main(int argc, char *argv[])
     
     printf("rcount %d\n",rcount);
     for (i = 0; i < rcount; i++) {
-        printf("%c", buffer[i]);
+        printf("%c", buffer2[i]);
     }
     printf("\n");
     

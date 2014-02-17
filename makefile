@@ -1,23 +1,14 @@
-all: client_d client_t t_dt_server clean
+all: http_server
 
 clean:
 	rm *.o
 
-client_d: client_d.o
-	gcc -o client_d client_d.o
+http_server: http_server.o circular_int_queue.o
+	gcc -g -o http_server http_server.o circular_int_bounded_buffer.o -lpthread
 
-client_t: client_t.o
-	gcc -o client_t client_t.o
-   	
-t_dt_server: t_dt_server.o
-	gcc -o t_dt_server t_dt_server.o -lpthread
+http_server.o: http_server.c
+	gcc -c -g -W -Wall http_server.c
 
-client_d.o: client_d.c
-	gcc -c -W -Wall client_d.c
+circular_int_queue.o: circular_int_bounded_buffer.c circular_int_queue.h
+	gcc -c -g -W circular_int_bounded_buffer.c
 
-t_dt_server.o: t_dt_server.c
-	gcc -c -W -Wall t_dt_server.c
-
-client_t.o: client_t.c
-	gcc -c -W -Wall client_t.c
-  

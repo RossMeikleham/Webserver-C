@@ -1,16 +1,15 @@
 /*
  * =====================================================================================
  *
- *       Filename:  testRequestNew.c
+ *       Filename:  http_server.c
  *
  *    Description:  
  *
  *        Version:  1.0
- *        Created:  05/02/14 11:45:04
  *       Revision:  none
  *       Compiler:  gcc
  *
- *         Author:  YOUR NAME (), 
+ *         Author:  Ross Meikleham 1107023m 
  *   Organization:  
  *
  * =====================================================================================
@@ -34,6 +33,9 @@
 #include <unistd.h>
 #include <strings.h>
 
+
+#include "circular_int_queue.h"
+
 #define BUFLEN 1500
 #define MAX_THREADS 10 /*Max number of clients which can be
                          concurrently served */
@@ -41,9 +43,6 @@
 #define URL_MAX_LENGTH 2048
 #define LINE_MAX 2048
 
-
-/*  Create an empty queue */
-client_queue cq = {.head = 0, .tail = MAX_QUEUE_SIZE-1, .size = 0};
 
 char RESPONSE_200[] = "200 OK";
 
@@ -98,7 +97,7 @@ int send_not_found_response(int confd)
           "</body>\r\n" 
           "</html>";
     
-    printf("bufsize %d\n", strlen(buf));      
+    //printf("bufsize %d\n", strlen(buf));      
     res = write(confd, buf, strlen(buf));
     close(confd);
     return res; 
@@ -122,7 +121,7 @@ int send_bad_request_response(int confd)
         "</body>\r\n" 
         "</html>";
      
-    printf("bad rq len buf %d\n",strlen(buf)); 
+    //printf("bad rq len buf %ld\n",strlen(buf)); 
     res = write(confd, buf, strlen(buf));
     close(confd);
     return res; 
@@ -175,17 +174,14 @@ int send_file(int confd, FILE *file)
 int get_response(char *resource, int confd) {
     char *file_name;
     char http_200_ok[] = "HTTP/1.1 200 OK \r\n";
-    char *test;
+
     struct stat fs;
     int fd;
     int result;
     FILE *file;
-    char *response;
     const char *content_type_header;
     char  length_buffer[11];
-    long req_size;
-
-    test = malloc(sizeof(char) * 20);
+ 
     file_name = resource;
     
     fd = open(file_name, O_RDONLY);
@@ -283,7 +279,7 @@ int get_header_value(char *start_field, char *header_value, long max_size){
 
     char *current, *eol;
     int count = 0, header_size = 0, add;
-  
+    printf("hey\n");
     if(max_size <= 0) 
         return SERVER_ERROR;
 
@@ -322,24 +318,23 @@ int get_header_value(char *start_field, char *header_value, long max_size){
  *  failure with fields */
 int check_headers_get_host(char *buf, char *host_name, long max_host_size) {
 
-    char *start_name, *end_name,
+    char *end_name,
          *start_field, *end_field, 
-         *start_line, *end_line,
+         *start_line,
         *end;
+    int  value;
 
-    long length, skip = 0;
-    int isHost = 0, host_length = 0, value;
-
-    length = strlen(buf);
-
-    start_name = start_line = buf;
-
-    if ((end = strstr(buf,"\r\n\r\n")) == NULL)
+    start_line = buf;
+    printf("check headers %s\n",buf);
+    if ((end = strstr(buf,"\r\n\r\n")) == NULL) {
+        printf("request doesn't end correctly\n");
         return BAD_REQUEST;
+    }
 
     for(;;) {
 
     if ((end_name = strchr(start_line, ':')) == NULL) {
+        printf("no header fields\n");
         return BAD_REQUEST;
     }
 
@@ -347,8 +342,10 @@ int check_headers_get_host(char *buf, char *host_name, long max_host_size) {
     printf("header name %.5s\n",start_line);
     if(end_name - start_line >= 3 && strncasecmp(start_line,"Host:",5) == 0){
         printf("scanning\n");
-        if ((value = get_header_value(end_name+2, host_name, max_host_size)) != OK)
+        if ((value = get_header_value(end_name+2, host_name, max_host_size)) != OK) {
+            printf("returning value\n");
             return value;
+        }
     }
     else printf("nope\n");
     
@@ -388,24 +385,28 @@ int request(char* buf, int confd)
         return -1;
     }
 
+    printf("requests fine\n");
+
     /*  Get the resource, if error with parsing request line, send 400 response */
     if(!(res = parse_request_line(buf, resource))) {
        send_bad_request_response(confd);
        return -1;
     }
 
-      /* Check headers and hostname, if error send 400 response */
-    if ((res = check_headers_get_host(strstr(buf,"\r\n")+2, host, 1024)) != OK) {
+    printf("attempting to retrive host-name\n");
+
+     /* Check headers and hostname, if error send 400 response */
+     if ((res = check_headers_get_host(strstr(buf,"\r\n")+2, host, 1024)) != OK) {
             if (res == 400) return send_bad_request_response(confd);
             else {send_server_error_response(confd);
                   return -1;
             }
     }
-
+    
     gethostname(this_host, 1024);
     printf("my hostname %s\n",this_host);
-    //if(strcmp(host, this_host) !=0)
-    //    return send_bad_request_response(confd);
+    //if(strcmp(host, this_host) !=0) {
+    //    return send_bad_request_response(confd);}
 
 
        printf("res host %d %s donee\n",res, host);
@@ -421,21 +422,23 @@ int request(char* buf, int confd)
 
 
 
-void* client_thread(void * stuff) {
+void* client_thread(void * client_queue) {
 
     int confd;
-    int connection_closed;
     int rcount;
     char type[2049]; 
-    long size;
+
+    queue *cq = (queue *)client_queue;
 
     for(;;) {
-        confd = get_client();
-    
+        printf("attempting to get item\n");
+        confd = pop_from_queue(cq);
+   
 
         for(;;) {
 
             printf("confd recieved %d\n", confd);  
+
             rcount = read(confd, type, 2048);
             printf("done recieving");
                 if (rcount == -1) {
@@ -455,7 +458,10 @@ void* client_thread(void * stuff) {
                 
 	
                 rcount = request(type, confd);
-                if(rcount <= 0) return;
+                if(rcount <= 0)  {
+                    close(confd); 
+                    break;
+                }
               }
 
         }
@@ -469,8 +475,9 @@ int main()
     int fd;
     struct sockaddr_in6 addr;
     int t_count;
+    queue *client_queue;
+
     pthread_t threads[MAX_THREADS];
-    pthread_t client_t;
     
 
     fd = socket(AF_INET6, SOCK_STREAM, IPPROTO_TCP);
@@ -490,8 +497,9 @@ int main()
 	exit(1);
     }
 
+    client_queue = initialize_queue();
     for(t_count = 0; t_count < MAX_THREADS; t_count++) {
-       pthread_create (threads+t_count, NULL, client_thread , NULL); 
+       pthread_create (threads+t_count, NULL, client_thread , client_queue); 
 
     }
    
@@ -515,7 +523,7 @@ int main()
             return 1;
         }
         printf("confd found %d\n", confd);
-        add_client(confd);
+        push_to_queue(client_queue, confd);
    
     }
 
