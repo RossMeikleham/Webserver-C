@@ -1,4 +1,4 @@
-all: http_server
+all: http_server clean
 
 clean:
 	rm *.o

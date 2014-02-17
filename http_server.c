@@ -209,7 +209,7 @@ int get_response(char *resource, int confd) {
     result = write(confd, http_200_ok, strlen(http_200_ok));
     printf("resultt %d\n",result);
     write(confd, "Content-Length: ", 16);
-    write(confd, length_buffer, sizeof(length_buffer));
+    write(confd, length_buffer, strlen(length_buffer));
     printf("len buf %s\n",length_buffer);
     write(confd, "\r\n\r\n", 4);
     
@@ -251,6 +251,8 @@ int parse_request_line(const char *header_start, char *resource)
     }
 
     strncpy(line, header_start, line_length);
+    line[line_length] = '\0';
+    
     printf("line: %s\n",line);
 
     /*  Parse for header values, ensure exactly 3*/
@@ -440,7 +442,7 @@ void* client_thread(void * client_queue) {
             printf("confd recieved %d\n", confd);  
 
             rcount = read(confd, type, 2048);
-            printf("done recieving");
+            printf("done recieving %d bytes from client\n",rcount);
                 if (rcount == -1) {
                     printf("%d\n",errno);
                     printf("unable to read from client socket\n");
@@ -453,8 +455,8 @@ void* client_thread(void * client_queue) {
                 break;
                 }
 
-                type[2048] = '\0';
-                printf("Client message %s\n",type);
+                type[rcount] = '\0';
+                //printf("Client message %s\n",type);
                 
 	
                 rcount = request(type, confd);
