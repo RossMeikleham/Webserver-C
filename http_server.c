@@ -358,13 +358,13 @@ int check_headers_get_host(char *buf, char *host_name, long max_host_size) {
     /*  Read through the until we get to the end of field value, i.e. a line not starting with a tab
      *  or a space */
     while ((end_field = strstr(end_field, "\r\n")) != NULL
-        && (end_field[1] == ' ' || end_field[1] == '\t'))
+        && (end_field[2] == ' ' || end_field[2] == '\t'))
         ;;
 
     if(end == end_field)
         return OK;
     
-    start_line = end_field + 1; /* Go to next line */
+    start_line = end_field + 2; /* Go to next line */
         
    }
     
@@ -435,7 +435,7 @@ void* client_thread(void * client_queue) {
     for(;;) {
         printf("attempting to get item\n");
         confd = pop_from_queue(cq);
-   
+        printf("thread doing work\n");
 
         for(;;) {
 
@@ -467,6 +467,7 @@ void* client_thread(void * client_queue) {
               }
 
         }
+        printf("thread finished work\n");
      
      return NULL;
 }
