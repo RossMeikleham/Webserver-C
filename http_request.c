@@ -10,7 +10,7 @@
  *       Revision:  none
  *       Compiler:  gcc
  *
- *         Author:  YOUR NAME (), 
+ *         Author:  Ross Meikleham 1107023m
  *   Organization:  
  *
  * =====================================================================================
@@ -26,31 +26,19 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-#include <errno.h>
 #include <sys/select.h>
-#include <time.h>
 #include <string.h>
-#include <pthread.h>
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <strings.h>
 
 
-#include "circular_int_queue.h"
-
-#define BUFLEN 1500
-#define MAX_THREADS 10 /*Max number of clients which can be
-                         concurrently served */
-#define REQUEST_MAX 8096
 #define URL_MAX_LENGTH 2048
 #define LINE_MAX 2048
 
 
 char RESPONSE_200[] = "200 OK";
-
-
-typedef enum {NOT_FOUND = 404, BAD_REQUEST = 400, OK = 200, SERVER_ERROR = 500} status;
 
 
 typedef struct {
@@ -64,7 +52,13 @@ content_map contents[] = { {"htm","text/html"}, {"html","text/html"},
     {"gif","image/gif"}, {NULL, "application/octet-stream"}};
 
 
-const char *get_content_type(const char *resource)
+
+
+/* Returns a pointer to the content type of the 
+ * specified resource, using its extension.
+ * Returns txt/html if no extension or
+ * octet-stream type if unrecognized extension */
+static const char *get_content_type(const char *resource)
 {  
     char* extention; 
     content_map *type;
@@ -84,9 +78,13 @@ const char *get_content_type(const char *resource)
     return type->content_type;   
 }
 
-int send_not_found_response(int confd)
+
+
+/*  Send a "404 Not Found" response
+ *  back to the client, returns the result
+ *  if the last write */
+static int send_not_found_response(int confd)
 { 
-      int res;
       char content[] =  
           "<!DOCTYPE HTML PUBLIC \"-//W3C//DTD HTML 4.01//EN\"\r\n"
           "\t\"http://www.w3.org/TR/html4/strict.dtd\">"
@@ -99,23 +97,21 @@ int send_not_found_response(int confd)
           "</body>\r\n" 
           "</html>";
 
-      printf("strlen:%d\n",strlen(content));
       char headers[] ="HTTP/1.1 404 Not Found\r\n" 
           "Content-Type: text/html \r\n" 
           "Content-Length: 219\r\n\r\n";
       
-    printf("not found stuff:%s\n", headers);
     write(confd, headers, strlen(headers));
-    res = write(confd, content, strlen(content));
-    return res; 
+    return write(confd, content, strlen(content));
 
 }
 
 
-int send_bad_request_response(int confd)
+/*  Send a "400 Bad Request" response
+ *  back to the client, returns the result
+ *  of the last write */
+static int send_bad_request_response(int confd)
 {
-    int res;
-           
     char content[] =  
           "<!DOCTYPE HTML PUBLIC \"-//W3C//DTD HTML 4.01//EN\"\r\n"
           "\t\"http://www.w3.org/TR/html4/strict.dtd\">"
@@ -128,24 +124,23 @@ int send_bad_request_response(int confd)
           "</body>\r\n" 
           "</html>";
 
-      printf("strlen:%d\n",strlen(content));
       char headers[] ="HTTP/1.1 400 Bad Request\r\n" 
           "Content-Type: text/html \r\n" 
           "Content-Length: 196\r\n\r\n";
 
      
-    printf("not found stuff:%s\n", headers);
     write(confd, headers, strlen(headers));
-    res = write(confd, content, strlen(content));
- 
-    return res; 
+    return write(confd, content, strlen(content)); 
 
 }
 
-int send_server_error_response(int confd)
-{
-     int res;
-      printf("wtf\n");
+
+
+/*  Send a "500 Server Error" response
+ *  back to the client, returns the result
+ *  of the last write */
+static int send_server_error_response(int confd)
+{    
       char content[] =  
           "<!DOCTYPE HTML PUBLIC \"-//W3C//DTD HTML 4.01//EN\"\r\n"
           "\t\"http://www.w3.org/TR/html4/strict.dtd\">"
@@ -164,18 +159,17 @@ int send_server_error_response(int confd)
           "Content-Length: 231\r\n\r\n";
 
      
-    printf("not found stuff:%s\n", headers);
     write(confd, headers, strlen(headers));
-    res = write(confd, content, strlen(content));
+    return write(confd, content, strlen(content));
      
-     return res;
-
 }
+
+
 
 
 /*  Attempt to send an open file through the given connection 
  *  returns  > 0 if successful, 0 or less if unsuccessful*/
-int send_file(int confd, FILE *file)
+static int send_file(int confd, FILE *file)
 {
     int res, wcount;
     char buf[LINE_MAX];
@@ -187,21 +181,33 @@ int send_file(int confd, FILE *file)
        }
    }
 
-   return res;
+   return res > 0 ? OK : CONNECTION_ERROR;
 
 }
 
-int send_error(status s, int confd) 
+
+
+/* Send an Error Response back to the 
+ * specified client */
+status send_error(status s, int confd) 
 {
     switch (s) {
-        case BAD_REQUEST: return send_server_error_response(confd);
-        case SERVER_ERROR: return send_server_error_response(confd);
-        case NOT_FOUND: return send_not_found_response(confd);
-        default: return send_server_error_response(confd);
+        case BAD_REQUEST: return send_bad_request_response(confd) > 0 ? OK : CONNECTION_ERROR;
+        case SERVER_ERROR: return send_server_error_response(confd) > 0 ? OK : CONNECTION_ERROR;
+        case NOT_FOUND: return send_not_found_response(confd) > 0 ? OK : CONNECTION_ERROR;
+        /* Error-Ception, if it reaches here server had made
+         * an error, so we send a server error response */
+        default: return send_server_error_response(confd) > 0 ? OK : CONNECTION_ERROR;
     }
 }
 
-int get_response(char *resource, int confd) {
+
+/* Given the resource and socket, attempts
+ * to locate the resource file and send it
+ * down the connection, sends appropriate error
+ * response if this fails. Returns the result of
+ * the last message sent to the client */
+static status send_response(char *resource, int confd) {
 
     char *file_name,
           http_200_ok[] = "HTTP/1.1 200 OK \r\n",
@@ -210,24 +216,31 @@ int get_response(char *resource, int confd) {
           length_buffer[11];
 
     struct stat fs;
-    int fd, result, file_size;
+    int fd, file_size;
+    status result;
     FILE *file;
     const char *content_type_header;
  
     file_name = resource;
     
+    /*  Obtain file size to determine content length */
     fd = open(file_name, O_RDONLY);
     if( fstat(fd, &fs) == -1) {
         close(fd);
-        return send_not_found_response(confd);
+        return NOT_FOUND;
     }
     
     file_size = fs.st_size;
     close(fd);
-    
+
+    /* Should not be negative, else something has gone wrong */
+    if(file_size < 0) 
+        return SERVER_ERROR;
+
+    /* We just want a pure byte stream so open file in binary write form*/
     if(!(file = fopen(file_name, "rb"))) {
         fclose(file);
-        return send_not_found_response(confd); 
+        return NOT_FOUND; 
     }
 
     content_type_header = get_content_type(resource);
@@ -251,10 +264,12 @@ int get_response(char *resource, int confd) {
     
 }
 
+
+
 /*  Modify string by an entire string delimiter instead of multiple
  *  character delimiters */   
-char *get_token_str(char *buf, const char *delimiter, char **next) {
-    char *end_token, *end_delimiters, *p;
+static char *get_token_str(char *buf, const char *delimiter, char **next) {
+    char *end_token, *end_delimiters;
     int len;
 
     len = strlen(delimiter);
@@ -281,17 +296,18 @@ char *get_token_str(char *buf, const char *delimiter, char **next) {
     
 
 
-/*  Parses a given header and stores details in given request
- *  returns status */
-status parse_request_line(char *header_start, char *resource)
+/*  Parses a request line and stores details in given request
+ *  returns status of parsing the line, should be OK
+ *  if request line format is correct */
+static status parse_request_line(char *buf, char *resource)
 {    
     char *next, *temp_resource;
     
-    resource[0] = '.';
+    resource[0] = '.'; /*  Need to prepend '.'  */
     next = NULL;
     
     /* Parse for header values, (Method, Resource, HTTP version) */
-    if(strcmp(strtok_r(header_start," ", &next), "GET") != 0)
+    if(strcmp(strtok_r(buf, " ", &next), "GET") != 0)
         return BAD_REQUEST;
 
     /*  Parse resource */
@@ -310,7 +326,7 @@ status parse_request_line(char *header_start, char *resource)
 
 /*  Reurn hostname or NULL if none or
  *  failure with fields */
-static int get_host(char *buf, char *header_store, unsigned long max_header_size) {
+static status get_host(char *buf, char *header_store, unsigned long max_header_size) {
 
     char *next, *line;
 
@@ -319,11 +335,14 @@ static int get_host(char *buf, char *header_store, unsigned long max_header_size
     while(next){
 
      line = get_token_str(next, "\r\n", &next);
+     if(!strchr(line,':'))
+         return BAD_REQUEST;
+         
      next = strtok_r(line, ": ", &next); 
      if(!(strcasecmp(next,"host"))) {
         next = strtok_r(NULL, "\t ", &next); 
         if(max_header_size < strlen(next)+1)
-            return 400;
+            return BAD_REQUEST;
         else {
             strncpy(header_store, next, strlen(next) + 1);
             return OK;
@@ -338,24 +357,117 @@ static int get_host(char *buf, char *header_store, unsigned long max_header_size
 
 
 
-
-
-/* Performs HTTP request from given buffer */
-int request(char* buf, int confd) 
+static status check_recieved_host(char *recieved_host) 
 {
-    char host[1024], this_host[1024];
+    char this_host[LINE_MAX];
+
+    gethostname(this_host, LINE_MAX);
+    if(gethostname(this_host, LINE_MAX) == -1 
+      )//|| this_host[LINE_MAX-1] != '\0') /*  Check gethostname successful*/
+        return SERVER_ERROR;
+
+    /*  Compare direct hostname with recieved host */
+    if(!strcmp(this_host, recieved_host))
+        return OK;
+
+    /*  If fails check our hostname + :PORT with recieved host */
+    /*  Check enough space to add port */
+    if(strlen(this_host) + strlen(STR(PORT)) + 1 > LINE_MAX)
+        return SERVER_ERROR;
+    
+
+    strncat(this_host, ":", 1);
+    strncat(this_host, STR(PORT), strlen(STR(PORT)));
+
+    if(!strcmp(this_host, recieved_host))
+        return OK;
+
+    /*  If both fail check our  */
+
+    printf("my hostname %s\n",this_host);
+    //if(strcmp(host, this_host) !=0) {
+    //    return send_bad_request_response(confd);}
+
+
+       //printf("res host %d %s donee\n",res, host);
+       return OK;
+
+}
+
+
+
+/*  result is OK if successfully obtained request, and
+ *  request is stored in buf
+ *  result is SERVER_ERROR if failure to allocate memory for request
+ *  result is CONNECTION_ERROR if failure to read */
+status obtain_request(char **buf, int confd) 
+{
+    unsigned long size = 0;
+    int count;
+    char read_buf[31];
+    char *end, *temp;
+
+    if(!(temp = (char *)realloc(*buf, sizeof(char)))) {
+        return SERVER_ERROR;
+    }
+    *buf = temp;
+
+    (*buf)[0] = '\0';
+    
+    for(;;) {
+        if((count = read(confd, read_buf, 30)) <= 0)
+            return CONNECTION_ERROR;
+
+        read_buf[count] = '\0';
+        printf("values read %s\n", read_buf);
+
+        /*  If end of request is before end of buffer
+         *  then we can just ignore the rest */
+        if((end = strstr(read_buf, "\r\n\r\n"))) {
+            count = end - read_buf + 4;
+        }
+
+        size += count;
+
+        /*Reallocate Size + 1 (space for EOS char ) to buf and  
+         * concatonate new read into it*/
+        if(!(temp = (char *)realloc(*buf, sizeof(char) * (size + 1)))) {
+             return SERVER_ERROR;
+        }
+
+        else { 
+            *buf = temp;
+            strncat(*buf, read_buf, count+1);
+            printf("buffer contains %s\n", *buf);
+            //printf("%s\n",strstr(buf, "\r\n\r\n"));
+            if(strstr(*buf, "\r\n\r\n")) {
+                printf("request ok\n");
+                printf("buf:%s\n",*buf);
+                return OK;
+            }
+        }
+    }      
+
+
+}
+
+/* Given a HTTP message and the size of the message 
+ * Responds to the given socket with the approrpriate
+ * HTTP response. The space allocated for message should
+ * be at least 1 more than req_size */
+status respond_to(char* buf, int confd)
+{
+    char host[1024];
     status res;
     char *next = NULL;
-    char resource[URL_MAX_LENGTH+1];
+    char resource[LINE_MAX+1];
     char *resource_line;
     char *headers;
+    
 
-    /*Check request ends correctly */
-    if(strstr(buf, "\r\n\r\n") == NULL) {
-        return send_bad_request_response(confd);
-    }
-
-    resource_line = get_token_str(buf, "\r\n", &next); /*Cut the part of the request that's necessary*/
+    /*  Cut off the Resource line */
+    printf("splitting lines\n");
+    resource_line = get_token_str(buf, "\r\n", &next); 
 
     printf("requests fine\n");
     printf("next:%s\n",next);
@@ -369,22 +481,17 @@ int request(char* buf, int confd)
     printf("attempting to retrive host-name:%s\n",headers);
 
      /* Check headers and hostname, if error send 400 response */
-     if ((res = get_host(headers, host, 1024)) != OK) {
+     if ((res = get_host(headers, host, LINE_MAX)) != OK) {
             return send_error(res, confd);
      }
     
+     if ((res = check_recieved_host(host)) != OK) {
+         return send_error(res, confd);
+     }
+           
     
-    gethostname(this_host, 1024);
-    printf("my hostname %s\n",this_host);
-    //if(strcmp(host, this_host) !=0) {
-    //    return send_bad_request_response(confd);}
-
-
-       printf("res host %d %s donee\n",res, host);
-       
-    
-    printf("Getting a response\n");
-    return get_response(resource, confd);
+        printf("Getting a response\n");
+    return send_response(resource, confd);
 
 }
 
