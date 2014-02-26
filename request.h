@@ -1,7 +1,7 @@
 #ifndef REQUEST_H
 #define REQUEST_H
 
-#define PORT 80
+#define PORT 8080
 
 /*  turn argument into string literal, 
  *  we need STRSTR so macro fed to STR 
