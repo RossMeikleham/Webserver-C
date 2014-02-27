@@ -1,7 +1,7 @@
 #ifndef CIRCULAR_H
 #define CIRCULAR_H
 
-#define MAX_QUEUE_SIZE 1024
+#define MAX_QUEUE_SIZE 3
 
 typedef struct int_queue queue;
 

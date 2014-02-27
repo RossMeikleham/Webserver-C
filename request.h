@@ -11,7 +11,6 @@
 #define STRSTR(x) #x
 #define STR(x) STRSTR(x)
 
-typedef enum {NOT_FOUND = 404, BAD_REQUEST = 400, OK = 200, SERVER_ERROR = 500, CONNECTION_ERROR} status;
 
 
 /* Given a message string ending in '\r\n\r\n' 

@@ -1,6 +1,5 @@
 CFLAGS = -g -W -Wall
-SRCS = http_server.c http_request.c circular_int_bounded_buffer.c
-INCLUDES = request.h circular_int_queue.h
+SRCS = http_server.c 
 OBJECTS = $(SRCS:.c=.o)
 LIBS = -lpthread
 
@@ -13,5 +12,5 @@ http_server: $(OBJECTS)
 	gcc $(CFLAGS) -o http_server $(OBJECTS) $(LIBS)
 
 $(OBJECTS): $(SRCS) $(INCLUDES)
-	gcc -c $(CFLAGS) $(SRCS) $(INCLUDES)
+	gcc -c $(CFLAGS) $(SRCS) 
 
