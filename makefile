@@ -11,6 +11,6 @@ clean:
 http_server: $(OBJECTS)
 	gcc $(CFLAGS) -o http_server $(OBJECTS) $(LIBS)
 
-$(OBJECTS): $(SRCS) $(INCLUDES)
+$(OBJECTS): $(SRCS) 
 	gcc -c $(CFLAGS) $(SRCS) 
 

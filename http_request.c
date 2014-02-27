@@ -1,7 +1,6 @@
 /*  HTTP Server Implementation in C
  *  Ross Meikleham 1107023m */
 
-#include "request.h"
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -56,7 +55,6 @@ struct int_queue {
 
 pthread_mutex_t pool_mutex = PTHREAD_MUTEX_INITIALIZER; /* thread pool mutex */
 pthread_cond_t condc, condp; /*  Consumer/Producer condition variables */
-
 
 
 
