@@ -1,6 +1,5 @@
 /*  HTTP Server Implementation in C
  *  Ross Meikleham 1107023m */
-
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -16,6 +15,7 @@
 #include <unistd.h>
 #include <strings.h>
 #include <pthread.h>
+#include <sys/sendfile.h>
 
 
 #define URL_MAX_LENGTH 2048
@@ -217,26 +217,6 @@ status send_server_error_response(int confd)
 
 
 
-
-/*  Attempt to send an open file through the given connection 
- *  returns  OK if successful, CONNECTION_ERROR if unsuccessful*/
-status send_file(int confd, int fd, int size)
-{
-    int res = 1, wcount;
-    char buf[LINE_MAX];
-
-    /*  We paritally read from the file then send to save
-     *  having to read the entire file into memory at once */    
-    while ((wcount = read(fd, buf, LINE_MAX)) > 0 &&
-        (res = write(confd, buf, wcount)) > 0) 
-        ;;
- 
-   return res > 0 ? OK : CONNECTION_ERROR;
-
-}
-
-
-
 /* Send an Error Response back to the 
  * specified client */
 status send_error(status s, int confd) 
@@ -259,10 +239,9 @@ status send_error(status s, int confd)
  * response if this fails. Returns OK if a response
  * is sent, CONNECTION_ERROR if unable to send
  * some sort of response back to the client */
-status send_response(char *resource, int confd) {
+status send_response(const char *file_name, int confd) {
 
-    char *file_name,
-          http_200_ok[] = "HTTP/1.1 200 OK \r\n",
+    char  http_200_ok[] = "HTTP/1.1 200 OK \r\n",
           content_length[] = "Content-Length: ",
           content_type[] = "Content-Type: ",
           length_buffer[11];
@@ -271,21 +250,24 @@ status send_response(char *resource, int confd) {
     int fd, file_size;
     status result;
     const char *content_type_header;
- 
-    file_name = resource;
-    
+  
+    /*  Simple check to avoid a directory traversal attack */
+    if (strstr(file_name, "..")) {
+        return send_not_found_response(confd);
+    }
     /*  Obtain file size to determine content length */
     if ((fd = open(file_name, O_RDONLY)) == -1) {
         return send_not_found_response(confd);
     }
-    if ( fstat(fd, &fs) == -1) {
+
+    if (fstat(fd, &fs) == -1) {
         close(fd);
         return send_not_found_response(confd);
     }
     
     file_size = fs.st_size;
    
-    content_type_header = get_content_type(resource);
+    content_type_header = get_content_type(file_name);
 
     /*  Convert content-length to string */
     snprintf(length_buffer, sizeof length_buffer, "%d", file_size);
@@ -299,16 +281,17 @@ status send_response(char *resource, int confd) {
     write(confd, content_type_header, strlen(content_type_header));
     write(confd, "\r\n\r\n", 4);
     
-    /*  Send the file over the socket */
-    result = send_file(confd, fd, file_size);
+    /*  Send the file over the socket, linux has a nice sendfile
+     *  function/system call which directly allows writing an open file over a socket removing
+     *  the need to read it into user space */
+    result = sendfile(confd, fd, NULL, file_size) < 0 ? CONNECTION_ERROR : OK;
     close(fd);
     return result;
-    
 }
 
 
 
-/* Same as strsep except takes an entire string
+/* Same functionality as strsep except takes an entire string
  * delimiter instead of multiple char delimiters
  * as far as I'm aware there are no functions like
  * this in the standard c libraries */   
@@ -374,30 +357,30 @@ status get_host(char *buf, char *header_store, unsigned long max_header_size) {
     
     /*  Split the first line */
     line = strsep_str(&buf, "\r\n");
-    while(line){
+    while (line) {
 
-     if(!strchr(line,':')) { /*  Badly formatted header line */
-         return BAD_REQUEST;
-     }    
-     temp = strsep(&line, ":"); 
-
-     if(!(strcasecmp(temp,"host"))) { 
-        temp = line + strspn(line, " \t"); /*skip whitespace*/
-        
-        if(max_header_size < strlen(temp)+1) {/* too large */
+        if(!strchr(line,':')) { /*  Badly formatted header line */
             return BAD_REQUEST;
-        }else {
-            strncpy(header_store, temp, strlen(temp) + 1);
-            return OK;
         }
-     }
+                    
+        temp = strsep(&line, ":"); 
+
+        if (!(strcasecmp(temp,"host"))) { 
+            temp = line + strspn(line, " \t"); /*skip whitespace*/
+        
+            if (max_header_size < strlen(temp)+1) {/* too large */
+                return BAD_REQUEST;
+            }else {
+                strncpy(header_store, temp, strlen(temp) + 1);
+                return OK;
+            }
+        }
      
-     line = strsep(&buf, "\r\n");
+        line = strsep(&buf, "\r\n");
 
     }
 
     return BAD_REQUEST; /*  no host header defined */
-    
 }
 
 
@@ -411,19 +394,19 @@ status check_recieved_host(char *recieved_host)
     recieved_host = strsep(&recieved_host,":");
 
     gethostname(this_host, LINE_MAX);
-    if(gethostname(this_host, LINE_MAX) < 0) { /* Check gethostname successful */
+    if (gethostname(this_host, LINE_MAX) < 0) { /* Check gethostname successful */
         return SERVER_ERROR;
     }
     /*  Compare direct hostname with recieved host */
-    if(!strcmp(this_host, recieved_host)) {
+    if (!strcmp(this_host, recieved_host)) {
         return OK;
     }
     /*  Check enough space for appending the dcs url to host */
-    if(strlen(dcs_host) + strlen(this_host) >= LINE_MAX) {
+    if (strlen(dcs_host) + strlen(this_host) >= LINE_MAX) {
         return SERVER_ERROR;
     }
     strncat(this_host, dcs_host, strlen(dcs_host) + 1);
-    if(!strcmp(this_host, recieved_host)) {
+    if (!strcmp(this_host, recieved_host)) {
         return OK;
     }
     /*  HostName doesn't match at all */   
@@ -449,23 +432,21 @@ status respond_to(char* buf, int confd)
     resource_line = strsep_str(&current, "\r\n"); 
 
     /*  Get the resource, if error with parsing request line, send 400 response */
-    if((result = parse_request_line(resource_line, resource)) != OK) {
-       return send_error(result, confd);
+    if ((result = parse_request_line(resource_line, resource)) != OK) {
+        return send_error(result, confd);
     }
 
     headers = strsep_str(&current, "\r\n\r\n");
 
      /* attempt to obtain hostname */
-     if ((result = get_host(headers, host, LINE_MAX)) != OK) {
-        return send_error(result, confd);
-     }
-    
-     if ((result = check_recieved_host(host)) != OK) {
+    if ((result = get_host(headers, host, LINE_MAX)) != OK) {
          return send_error(result, confd);
-     }
+    }  
+    if ((result = check_recieved_host(host)) != OK) {
+         return send_error(result, confd);
+    }
            
     return send_response(resource, confd);
-
 }
 
 
@@ -480,18 +461,19 @@ status obtain_request(char **request_buf, int confd)
     unsigned long size = 0;
     int count;
     char read_buf[LINE_MAX+1],
-        *end, *temp;
+         *end, *temp;
     
     /*  If buf hasn't been allocated any mem it needs
      *  to be initialized with size of 1 and EOS placed in it
      *  so it can be reallocated and concatonated to*/
-    if(!*request_buf && !(*request_buf = (char *)malloc(sizeof (char)))) {
+    if (!*request_buf && !(*request_buf = (char *)malloc(sizeof (char)))) {
         return SERVER_ERROR;
     }
+
     *(request_buf[0]) = '\0'; /* 'overwrite' previous string */
     
     for(;;) {
-        if((count = read(confd, read_buf, LINE_MAX)) <= 0) {
+        if ((count = read(confd, read_buf, LINE_MAX)) <= 0) {
             return CONNECTION_ERROR;
         }
 
@@ -499,7 +481,7 @@ status obtain_request(char **request_buf, int confd)
 
         /*  If end of request is before end of buffer
          *  then we can just ignore the rest of the read buffer*/
-        if((end = strstr(read_buf, "\r\n\r\n"))) {
+        if ((end = strstr(read_buf, "\r\n\r\n"))) {
             count = end - read_buf + 4;
         }
 
@@ -507,13 +489,14 @@ status obtain_request(char **request_buf, int confd)
        
         /*Reallocate Size + 1 (space for EOS char ) to buf and  
          * concatonate new read into it*/
-        if(!(temp = (char *)realloc(*request_buf, sizeof(char) * (size + 1)))) {
+        if (!(temp = (char *)realloc(*request_buf, sizeof(char) * (size + 1)))) {
              return SERVER_ERROR;
         }
+
         *request_buf = temp;
 
         strncat(*request_buf, read_buf, count+1);
-        if(strstr(*request_buf, "\r\n\r\n")) { /*  We have all we need */
+        if (strstr(*request_buf, "\r\n\r\n")) { /*  We have all we need */
             return OK;
         }
     }      
@@ -535,26 +518,26 @@ void* client_thread(void * client_queue) {
     for(;;) {
 
         confd = dequeue(cq);
-        printf("fd:%d\n",confd);
 
         /*  Serve client until they close connection, or
          *  there is an error when attempting to read/write to/from them */
         do {
             /*  Obtain the request message as a string ending in '\r\n\r\n */
-            if((res = obtain_request(&message, confd)) != OK) {
-                if(res != CONNECTION_ERROR) {
+            if ((res = obtain_request(&message, confd)) != OK) {
+                if (res != CONNECTION_ERROR) {
                    res = send_error(res, confd);
                 }
             } else { /* If request message recieved successfully */
                 res = respond_to(message, confd); 
             }
+            
            
         } while (res != CONNECTION_ERROR);
         
         close(confd);       
     }
     /*  Should never get here, but if it does
-     *  might as well avoid any memory leaks */
+     *  might as well attempt to avoid any memory leaks */
     free(message);
     return NULL;
         
@@ -566,9 +549,9 @@ int main()
 {
     int fd, t_count, confd;
     struct sockaddr_in6 addr, client_addr;
-    queue client_queue;
-    
+    queue client_queue;   
     pthread_t threads[MAX_THREADS];
+
     
     fd = socket(AF_INET6, SOCK_STREAM, IPPROTO_TCP);
     if (fd == -1) {
@@ -593,40 +576,32 @@ int main()
 
     /*  Initialize the threads for the threadpool */
     for(t_count = 0; t_count < MAX_THREADS; t_count++) {
-       if (pthread_create(threads+t_count, NULL, client_thread, &client_queue) != 0) {
-           printf("failed to create thread %d\n",t_count+1);
-           return 1;
-       }
-    }
+        if (pthread_create(threads+t_count, NULL, client_thread, &client_queue) != 0) {
+            printf("failed to create thread %d\n",t_count+1);
+            return 1;
+        }
+    }  
 
-   
     /* Prepare to listen for incoming connections */  
     if (listen(fd, LISTEN_MAX) == -1) {
         printf("error when listening for connection\n");
         return 1;;
-
     }
    
     socklen_t client_addrlen = sizeof(client_addr);
     memset(&addr, 0, sizeof client_addr);
-
-   
+      
     /* Loop round accepting connections from clients and placing them
      * on the work queue, so each consumer thread can take one when they
      * are ready */
     for(;;) {
-
         if ((confd = accept(fd, (struct sockaddr *) &client_addr, &client_addrlen)) == -1) {
             close(fd);
             return 1;
         }
         enqueue(&client_queue, confd);
-   
     }
     
     close(fd);
     return 0;
 }
-
-
-
