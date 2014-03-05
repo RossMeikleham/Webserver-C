@@ -352,10 +352,6 @@ status send_response(const char *file_name, int confd) {
 char *strsep_str(char **buf, const char *delimiter) {
     unsigned long count;
     char *start_token, *current, *end_token;
-
-    if(!*buf) {
-        return NULL;
-    }
     
     while ((current = strstr(*buf, delimiter)) == *buf) {
         *buf = current;
@@ -416,14 +412,14 @@ status get_host(char *buf, char *header_store, unsigned long max_header_size) {
     /*  Split the first line */
     line = strsep_str(&buf, "\r\n");
     while (line) {
-        
+
         if(!strchr(line,':')) { /*  Badly formatted header line */
             return BAD_REQUEST;
         }
                     
         temp = strsep(&line, ":"); 
 
-        if (!(strcasecmp(temp,"host"))) { /*  host header found */
+        if (!(strcasecmp(temp,"host"))) { 
             temp = line + strspn(line, " \t"); /*skip whitespace*/
         
             if (max_header_size < strlen(temp)+1) {/* too large */
@@ -433,9 +429,8 @@ status get_host(char *buf, char *header_store, unsigned long max_header_size) {
                 return OK;
             }
         }
-        
-        printf("buf:%s\n",buf);
-        line = strsep_str(&buf, "\r\n");
+     
+        line = strsep(&buf, "\r\n");
 
     }
 
@@ -504,7 +499,6 @@ status respond_to(char* buf, int confd)
          return send_error(result, confd);
     }  
     if ((result = check_recieved_host(host)) != OK) {
-         printf("Recieved hostname header not the same as server hostname for connection %d\n",confd);
          return send_error(result, confd);
     }
            
@@ -548,7 +542,7 @@ status obtain_request(char **request_buf, int confd)
         }
 
         size += count;
-          
+       
         /*Reallocate Size + 1 (space for EOS char ) to buf and  
          * concatonate new read into it*/
         if (!(temp = (char *)realloc(*request_buf, sizeof(char) * (size + 1)))) {
@@ -557,8 +551,7 @@ status obtain_request(char **request_buf, int confd)
 
         *request_buf = temp;
 
-        strncat(*request_buf, read_buf, count);
-        strncat(*request_buf, "\0", 1);
+        strncat(*request_buf, read_buf, count+1);
         if (strstr(*request_buf, "\r\n\r\n")) { /*  We have all we need */
             return OK;
         }
@@ -575,13 +568,14 @@ void* client_thread(void * client_queue) {
     int confd;
     status res;
     char* message = NULL;
+    pthread_getthreadid_np();
 
     queue *cq = (queue *)client_queue;
 
     for(;;) {
 
         confd = dequeue(cq);
-        printf("Connection %d\n acquired by thread %u\n", confd, (unsigned int)pthread_self());
+        printf("Connection %d acquired by thread id %u\n", confd, (unsigned int)pthread_self());
         /*  Serve client until they close connection, or
          *  there is an error when attempting to read/write to/from them */
         do {
@@ -597,7 +591,7 @@ void* client_thread(void * client_queue) {
             
            
         } while (res != CONNECTION_ERROR);
-        printf("Closing connection %d for thread %u\n",confd, (unsigned int)pthread_self());
+        printf("Closing connection %d for thread id %u\n",confd, (unsigned int)pthread_self());
         close(confd);       
     }
     /*  Should never get here, but if it does

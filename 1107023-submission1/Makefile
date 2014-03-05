@@ -1,15 +1,16 @@
 CFLAGS = -g -W -Wall
-SRCS = http_server.c 
+SRCS = web_server.c 
 OBJECTS = $(SRCS:.c=.o)
 LIBS = -lpthread
+EXEC = web_server
 
-all: http_server clean
+all: $(EXEC) clean
 
 clean:
 	rm *.o
 
-http_server: $(OBJECTS)
-	gcc $(CFLAGS) -o http_server $(OBJECTS) $(LIBS)
+$(EXEC): $(OBJECTS)
+	gcc $(CFLAGS) -o $(EXEC) $(OBJECTS) $(LIBS)
 
 $(OBJECTS): $(SRCS) 
 	gcc -c $(CFLAGS) $(SRCS) 
