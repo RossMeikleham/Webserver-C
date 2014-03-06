@@ -50,22 +50,21 @@ typedef struct int_queue {
     unsigned long head;
     unsigned long tail;
     unsigned long size;
+    pthread_mutex_t lock;  
+    pthread_cond_t condc, condp; /* Consumer/Producer condition variables*/
 
 } queue;
 
-
-pthread_mutex_t pool_mutex = PTHREAD_MUTEX_INITIALIZER; /* thread pool mutex */
-pthread_cond_t condc, condp; /*  Consumer/Producer condition variables */
 
 
 
 /*  Obtain a client from the waiting client queue*/
 int dequeue(queue *q) {
     int confd;
-    pthread_mutex_lock(&pool_mutex);
+    pthread_mutex_lock(&(q->lock));
 
     while (q->size <= 0) {
-        pthread_cond_wait(&condc, &pool_mutex);
+        pthread_cond_wait(&(q->condc), &(q->lock));
     }
     /* Move queue head forward, 
      * wrap round to the start if at end */
@@ -74,8 +73,8 @@ int dequeue(queue *q) {
     q->head %= MAX_QUEUE_SIZE;
     q->size--;
 
-    pthread_cond_signal(&condp);
-    pthread_mutex_unlock(&pool_mutex);
+    pthread_cond_signal(&(q->condp));
+    pthread_mutex_unlock(&(q->lock));
 
     return confd;
 }
@@ -86,10 +85,10 @@ int dequeue(queue *q) {
 void enqueue(queue *q, int item) 
 {
     
-    pthread_mutex_lock(&pool_mutex);
+    pthread_mutex_lock(&(q->lock));
 
     while (q->size >= MAX_QUEUE_SIZE) {
-        pthread_cond_wait(&condp, &pool_mutex);
+        pthread_cond_wait(&(q->condp), &(q->lock));
     }
     /* Move queue tail forward,
      * wrap round to the start if at end */
@@ -99,8 +98,8 @@ void enqueue(queue *q, int item)
 
     q->items[q->tail] = item;
 
-    pthread_cond_signal(&condc);
-    pthread_mutex_unlock(&pool_mutex);
+    pthread_cond_signal(&(q->condc));
+    pthread_mutex_unlock(&(q->lock));
 }
 
 
@@ -581,7 +580,7 @@ void* client_thread(void * client_queue) {
     for(;;) {
 
         confd = dequeue(cq);
-        printf("Connection %d\n acquired by thread %u\n", confd, (unsigned int)pthread_self());
+        printf("Connection %d\n acquired by thread %lu\n", confd, pthread_self());
         /*  Serve client until they close connection, or
          *  there is an error when attempting to read/write to/from them */
         do {
@@ -597,7 +596,7 @@ void* client_thread(void * client_queue) {
             
            
         } while (res != CONNECTION_ERROR);
-        printf("Closing connection %d for thread %u\n",confd, (unsigned int)pthread_self());
+        printf("Closing connection %d for thread %lu\n",confd, pthread_self());
         close(confd);       
     }
     /*  Should never get here, but if it does
@@ -607,7 +606,18 @@ void* client_thread(void * client_queue) {
         
 }
 
+/*  Create and initialize bounded buffer queue for client
+ *  connections */
+queue init_client_queue() {
+    queue client_queue = {.head = 0,
+    .tail = MAX_QUEUE_SIZE-1, .size = 0};
 
+    pthread_cond_init(&(client_queue.condp), NULL);
+    pthread_cond_init(&(client_queue.condc), NULL);
+    pthread_mutex_init(&(client_queue.lock), NULL);
+
+    return client_queue;
+}
 
 int main()
 {
@@ -634,9 +644,7 @@ int main()
 	    return 1;
     }
 
-    client_queue.head = 0;
-    client_queue.tail = MAX_QUEUE_SIZE-1;
-    client_queue.size = 0;
+    client_queue = init_client_queue();
 
     /*  Initialize the threads for the threadpool */
     for(t_count = 0; t_count < MAX_THREADS; t_count++) {
