@@ -352,7 +352,7 @@ char *strsep_str(char **buf, const char *delimiter) {
     unsigned long count;
     char *start_token, *current, *end_token;
 
-    if(!*buf) {
+    if(!buf) {
         return NULL;
     }
     
@@ -415,7 +415,7 @@ status get_host(char *buf, char *header_store, unsigned long max_header_size) {
     /*  Split the first line */
     line = strsep_str(&buf, "\r\n");
     while (line) {
-        
+        printf("fuck\n");
         if(!strchr(line,':')) { /*  Badly formatted header line */
             return BAD_REQUEST;
         }
@@ -487,6 +487,7 @@ status respond_to(char* buf, int confd)
     
     current = buf;
     /*  Cut off the Resource line */
+    printf("here\n");
     resource_line = strsep_str(&current, "\r\n"); 
 
     /*  Get the resource, if error with parsing request line, send 400 response */
@@ -495,13 +496,17 @@ status respond_to(char* buf, int confd)
         return send_error(result, confd);
     }
 
-    headers = strsep_str(&current, "\r\n\r\n");
+    printf("request good\n");
 
+    headers = strsep_str(&current, "\r\n\r\n");
+    printf("headers:%s\n",headers);
+    printf("hmm\n");
      /* attempt to obtain hostname */
     if ((result = get_host(headers, host, BUFLEN)) != OK) {
          printf("Failed to retrieve hostname header for connection %d\n",confd);
          return send_error(result, confd);
-    }  
+    } 
+    printf("what\n"); 
     if ((result = check_recieved_host(host)) != OK) {
          printf("Recieved hostname header not the same as server hostname for connection %d\n",confd);
          return send_error(result, confd);
@@ -558,7 +563,9 @@ status obtain_request(char **request_buf, int confd)
 
         strncat(*request_buf, read_buf, count);
         strncat(*request_buf, "\0", 1);
+        printf("buf:%s",*request_buf);
         if (strstr(*request_buf, "\r\n\r\n")) { /*  We have all we need */
+            printf("yay\n");
             return OK;
         }
     }      
