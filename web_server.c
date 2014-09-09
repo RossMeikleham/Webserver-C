@@ -24,7 +24,6 @@
 #define LISTEN_MAX 20 /*  Max number of listeners */
 #define MAX_THREADS 8 /*Max number of clients which can be concurrently served */
 #define MAX_QUEUE_SIZE  2 * MAX_THREADS
-#define PORT 8080 /* Port to connect to */
 
 
 
@@ -415,7 +414,7 @@ status get_host(char *buf, char *header_store, unsigned long max_header_size) {
     /*  Split the first line */
     line = strsep_str(&buf, "\r\n");
     while (line) {
-        printf("fuck\n");
+        
         if(!strchr(line,':')) { /*  Badly formatted header line */
             return BAD_REQUEST;
         }
@@ -442,52 +441,18 @@ status get_host(char *buf, char *header_store, unsigned long max_header_size) {
 }
 
 
-
-status check_recieved_host(char *recieved_host) 
-{
-    char this_host[BUFLEN],
-         dcs_host[] = ".dcs.gla.ac.uk";
-
-    /*  Split off port number if recieved host contains it*/
-    recieved_host = strsep(&recieved_host,":");
-
-    gethostname(this_host, BUFLEN);
-    if (gethostname(this_host, BUFLEN) < 0) { /* Check gethostname successful */
-        return SERVER_ERROR;
-    }
-    /*  Compare direct hostname with recieved host */
-    if (!strcmp(this_host, recieved_host)) {
-        return OK;
-    }
-    /*  Check enough space for appending the dcs url to host */
-    if (strlen(dcs_host) + strlen(this_host) >= BUFLEN) {
-        return SERVER_ERROR;
-    }
-    strncat(this_host, dcs_host, strlen(dcs_host) + 1);
-    if (!strcmp(this_host, recieved_host)) {
-        return OK;
-    }
-    /*  HostName doesn't match at all */   
-    return BAD_REQUEST;
-
-}
-
-
-
-
 /* Given a HTTP message and the size of the message 
  * Responds to the given socket with the approrpriate
  * HTTP response. The space allocated for message should
  * be at least 1 more than req_size */
 status respond_to(char* buf, int confd)
 {
-    char host[BUFLEN+1], resource[BUFLEN+1],
+    char resource[BUFLEN+1],
          *resource_line, *headers, *current;
     int result;
     
     current = buf;
     /*  Cut off the Resource line */
-    printf("here\n");
     resource_line = strsep_str(&current, "\r\n"); 
 
     /*  Get the resource, if error with parsing request line, send 400 response */
@@ -500,18 +465,7 @@ status respond_to(char* buf, int confd)
 
     headers = strsep_str(&current, "\r\n\r\n");
     printf("headers:%s\n",headers);
-    printf("hmm\n");
-     /* attempt to obtain hostname */
-    if ((result = get_host(headers, host, BUFLEN)) != OK) {
-         printf("Failed to retrieve hostname header for connection %d\n",confd);
-         return send_error(result, confd);
-    } 
-    printf("what\n"); 
-    if ((result = check_recieved_host(host)) != OK) {
-         printf("Recieved hostname header not the same as server hostname for connection %d\n",confd);
-         return send_error(result, confd);
-    }
-           
+     
     return send_response(resource, confd);
 }
 
@@ -565,7 +519,6 @@ status obtain_request(char **request_buf, int confd)
         strncat(*request_buf, "\0", 1);
         printf("buf:%s",*request_buf);
         if (strstr(*request_buf, "\r\n\r\n")) { /*  We have all we need */
-            printf("yay\n");
             return OK;
         }
     }      
@@ -626,13 +579,26 @@ queue init_client_queue() {
     return client_queue;
 }
 
-int main()
+int main(int argc, char *argv[])
 {
     int fd, t_count, confd;
     struct sockaddr_in6 addr, client_addr;
     queue client_queue;   
     pthread_t threads[MAX_THREADS];
+    
+    int port;
+    char *endPtr;
 
+    if (argc >= 2) {
+         port = strtol(argv[1], &endPtr, 10);
+         if (argv == NULL || *endPtr != '\0') {
+            fprintf(stderr, "Port must be a number\n");
+            return 1;
+         }
+    } else {
+        fprintf(stderr, "Usage: %s [Port]\n",argv[0]);
+        return 1;
+    }
     
     fd = socket(AF_INET6, SOCK_STREAM, IPPROTO_TCP);
     if (fd == -1) {
@@ -644,7 +610,7 @@ int main()
 
     addr.sin6_addr =  in6addr_any;
     addr.sin6_family= AF_INET6;
-    addr.sin6_port= htons(PORT);
+    addr.sin6_port= htons(port);
 
     if (bind(fd, (struct sockaddr *) &addr,sizeof(addr)) == -1) {
         perror("unable to bind socket. ");

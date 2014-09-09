@@ -1,4 +1,4 @@
-CFLAGS = -g -W -Wall
+CFLAGS = -W -Wall
 SRCS = web_server.c 
 OBJECTS = $(SRCS:.c=.o)
 LIBS = -lpthread
